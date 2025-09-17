@@ -301,20 +301,36 @@ def single_inference(image, model: str, progress=gr.Progress()):
         return None, "❌ Please upload an image."
 
     try:
+        # Store original image for slider comparison
+        original_image = None
+        
         # Convert image to numpy array if needed
         if isinstance(image, str):
             # If it's a file path
+            original_image = cv2.imread(image)
+            original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)  # Convert to RGB for display
             image = cv2.imread(image)
         elif hasattr(image, 'save'):
             # If it's a PIL Image
+            original_image = np.array(image)  # PIL images are already in RGB
+            image = np.array(image)
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        else:
+            # If it's already a numpy array (from Gradio)
+            original_image = np.array(image)  # Keep original in RGB
             image = np.array(image)
             if len(image.shape) == 3 and image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         progress(0.1, desc=f"Running {model}")
-        out, label = run_model(model, image)
+        depth_result, label = run_model(model, image)
+        
+        # Convert depth result back to RGB for slider (depth_result is already in RGB from colorize_depth)
+        depth_result_rgb = depth_result  # colorize_depth already returns RGB
+        
         progress(1.0, desc="Done")
-        return out, f"**{label}**"
+        return (original_image, depth_result_rgb), f"**Original** vs **{label}**"
     
     finally:
         # Clean up GPU memory after inference
@@ -401,21 +417,21 @@ def create_app():
                         return compare_models(image, default1, default2)
                     examples = gr.Examples(examples=ex_imgs, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
 
-            with gr.Tab("🔬 Single Model"):
+            with gr.Tab("� Single Model"):
                 with gr.Row():
                     img_input3 = gr.Image(label="Input Image")
                     with gr.Column():
                         m_single = gr.Dropdown(choices=model_choices, label="Model", value=default1)
                         btn3 = gr.Button("Run", variant="primary")
-                out_single = gr.Image(label="Depth Result")
+                single_slider = gr.ImageSlider(label="Original vs Depth")
                 out_single_status = gr.Markdown()
-                btn3.click(single_inference, inputs=[img_input3, m_single], outputs=[out_single, out_single_status], show_progress=True)
+                btn3.click(single_inference, inputs=[img_input3, m_single], outputs=[single_slider, out_single_status], show_progress=True)
 
                 # Examples for single model
                 if ex_imgs:
                     def single_example_fn(image):
                         return single_inference(image, default1)
-                    examples3 = gr.Examples(examples=ex_imgs, inputs=[img_input3], outputs=[out_single, out_single_status], fn=single_example_fn)
+                    examples3 = gr.Examples(examples=ex_imgs, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
 
         gr.Markdown("""
         ---
