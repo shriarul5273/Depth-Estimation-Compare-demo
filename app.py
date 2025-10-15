@@ -468,7 +468,7 @@ def get_paginated_examples(examples: List[str], page: int = 0, per_page: int = 6
 
 def create_app():
     model_choices = get_model_choices()
-    default1 = next((value for _, value in model_choices if value.startswith('v1_')), model_choices[0][1])
+    default1 = next((value for _, value in model_choices if value == 'v2_vitl'), model_choices[0][1])
     default2 = next((value for _, value in model_choices if value == 'ppd'), None)
     if default2 is None:
         default2 = next((value for _, value in model_choices if value.startswith('v2_') and value != default1), model_choices[min(1, len(model_choices) - 1)][1])
