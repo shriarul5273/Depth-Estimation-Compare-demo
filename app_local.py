@@ -1,22 +1,23 @@
 """
-Depth Anything Comparison Demo (v1 vs v2)
+Depth Estimation Comparison Demo (Depth Anything v1/v2 + Pixel-Perfect Depth)
 
-Compare different Depth Anything models (v1 and v2) side-by-side or with a slider using Gradio.
+Compare Depth Anything models (v1 and v2) and Pixel-Perfect Depth side-by-side or with a slider using Gradio.
 Inspired by the Stereo Matching Methods Comparison Demo.
 """
 
 import os
 import sys
 import logging
-import gc
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 import numpy as np
 import cv2
 import gradio as gr
-from PIL import Image
 from huggingface_hub import hf_hub_download
+import open3d as o3d
+import trimesh
 
 # Import v1 and v2 model code
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything"))
@@ -33,6 +34,14 @@ from torchvision.transforms import Compose
 from depth_anything_v2.dpt import DepthAnythingV2
 
 import matplotlib
+
+# Pixel-Perfect Depth imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Pixel-Perfect-Depth"))
+from ppd.utils.set_seed import set_seed
+from ppd.utils.align_depth_func import recover_metric_depth_ransac
+from ppd.utils.depth2pcd import depth2pcd
+from moge.model.v2 import MoGeModel
+from ppd.models.ppd import PixelPerfectDepth
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -159,12 +168,147 @@ def colorize_depth(depth: np.ndarray) -> np.ndarray:
     colored = (cmap(depth_uint8)[:, :, :3] * 255).astype(np.uint8)
     return colored
 
+
+# Pixel-Perfect Depth setup -------------------------------------------------
+set_seed(666)
+
+TORCH_DEVICE = torch.device(DEVICE)
+PPD_DEFAULT_STEPS = 20
+PPD_TEMP_ROOT = Path(tempfile.gettempdir()) / "ppd"
+
+_ppd_model: Optional[PixelPerfectDepth] = None
+_moge_model: Optional[MoGeModel] = None
+_ppd_cmap = matplotlib.colormaps.get_cmap('Spectral')
+
+
+def load_ppd_model() -> PixelPerfectDepth:
+    global _ppd_model
+    if _ppd_model is None:
+        model = PixelPerfectDepth(sampling_steps=PPD_DEFAULT_STEPS)
+        ckpt_path = hf_hub_download(
+            repo_id="gangweix/Pixel-Perfect-Depth",
+            filename="ppd.pth",
+            repo_type="model"
+        )
+        state_dict = torch.load(ckpt_path, map_location="cpu")
+        model.load_state_dict(state_dict, strict=False)
+        model = model.to(TORCH_DEVICE).eval()
+        _ppd_model = model
+    return _ppd_model
+
+
+def load_moge_model() -> MoGeModel:
+    global _moge_model
+    if _moge_model is None:
+        model = MoGeModel.from_pretrained("Ruicheng/moge-2-vitl-normal").eval()
+        model = model.to(TORCH_DEVICE)
+        _moge_model = model
+    return _moge_model
+
+
+def _ensure_ppd_temp_dir(session_hash: str) -> Path:
+    PPD_TEMP_ROOT.mkdir(exist_ok=True)
+    output_path = PPD_TEMP_ROOT / session_hash
+    shutil.rmtree(output_path, ignore_errors=True)
+    output_path.mkdir(exist_ok=True, parents=True)
+    return output_path
+
+
+def _normalize_depth_to_rgb(depth: np.ndarray) -> np.ndarray:
+    depth_vis = (depth - depth.min()) / (depth.max() - depth.min() + 1e-5) * 255.0
+    depth_vis = depth_vis.astype(np.uint8)
+    colored = (_ppd_cmap(depth_vis)[:, :, :3] * 255).astype(np.uint8)
+    return colored
+
+
+def pixel_perfect_depth_inference(
+    image_bgr: np.ndarray,
+    denoise_steps: int,
+    apply_filter: bool,
+    request: Optional[gr.Request] = None,
+    generate_assets: bool = True
+):
+    if image_bgr is None:
+        return None, None, []
+
+    ppd_model = load_ppd_model()
+    moge_model = load_moge_model()
+
+    H, W = image_bgr.shape[:2]
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    # PixelPerfectDepth expects BGR input similar to original demo
+    with torch.no_grad():
+        depth_rel, resize_image = ppd_model.infer_image(image_bgr, sampling_steps=denoise_steps)
+    resize_H, resize_W = resize_image.shape[:2]
+
+    # MoGe expects RGB tensor
+    rgb_tensor = torch.tensor(cv2.cvtColor(resize_image, cv2.COLOR_BGR2RGB) / 255, dtype=torch.float32, device=TORCH_DEVICE).permute(2, 0, 1)
+    with torch.no_grad():
+        metric_depth, mask, intrinsics = moge_model.infer(rgb_tensor)
+    metric_depth[~mask] = metric_depth[mask].max()
+
+    # Align relative depth to metric using RANSAC
+    metric_depth_aligned = recover_metric_depth_ransac(depth_rel, metric_depth, mask)
+    intrinsics[0, 0] *= resize_W
+    intrinsics[1, 1] *= resize_H
+    intrinsics[0, 2] *= resize_W
+    intrinsics[1, 2] *= resize_H
+
+    depth_full = cv2.resize(metric_depth_aligned, (W, H), interpolation=cv2.INTER_LINEAR)
+    colored_depth = _normalize_depth_to_rgb(depth_full)
+
+    if not generate_assets:
+        return (image_rgb, colored_depth), None, []
+
+    pcd = depth2pcd(
+        metric_depth_aligned,
+        intrinsics,
+        color=cv2.cvtColor(resize_image, cv2.COLOR_BGR2RGB),
+        input_mask=mask,
+        ret_pcd=True
+    )
+    if apply_filter:
+        _, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        pcd = pcd.select_by_index(ind)
+
+    session_hash = getattr(request, "session_hash", "default")
+    output_dir = _ensure_ppd_temp_dir(session_hash)
+
+    # Save artifacts
+    ply_path = output_dir / "pointcloud.ply"
+    pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points) * np.array([1, -1, -1], dtype=np.float32))
+    o3d.io.write_point_cloud(ply_path.as_posix(), pcd)
+    vertices = np.asarray(pcd.points)
+    vertex_colors = (np.asarray(pcd.colors) * 255).astype(np.uint8)
+    mesh = trimesh.PointCloud(vertices=vertices, colors=vertex_colors)
+    glb_path = output_dir / "pointcloud.glb"
+    mesh.export(glb_path.as_posix())
+
+    raw_depth_path = output_dir / "raw_depth.npy"
+    np.save(raw_depth_path.as_posix(), depth_full)
+
+    split_region = np.ones((image_bgr.shape[0], 50, 3), dtype=np.uint8) * 255
+    combined_result = cv2.hconcat([image_bgr, split_region, colored_depth[:, :, ::-1]])
+    vis_path = output_dir / "image_depth_vis.png"
+    cv2.imwrite(vis_path.as_posix(), combined_result)
+
+    available_files = [
+        path.as_posix()
+        for path in [vis_path, raw_depth_path, ply_path]
+        if path.exists()
+    ]
+
+    return (image_rgb, colored_depth), glb_path.as_posix(), available_files
+
+
 def get_model_choices() -> List[Tuple[str, str]]:
     choices = []
     for k, v in V1_MODEL_CONFIGS.items():
         choices.append((v['display_name'], f'v1_{k}'))
     for k, v in V2_MODEL_CONFIGS.items():
         choices.append((v['display_name'], f'v2_{k}'))
+    choices.append(("Pixel-Perfect Depth", "ppd"))
     return choices
 
 def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
@@ -173,11 +317,24 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
         model = load_v1_model(key)
         depth = predict_v1(model, image)
         label = V1_MODEL_CONFIGS[key]['display_name']
-    else:
+    elif model_key.startswith('v2_'):
         key = model_key[3:]
         model = load_v2_model(key)
         depth = predict_v2(model, image)
         label = V2_MODEL_CONFIGS[key]['display_name']
+    elif model_key == 'ppd':
+        slider_data, _, _ = pixel_perfect_depth_inference(
+            image,
+            denoise_steps=PPD_DEFAULT_STEPS,
+            apply_filter=False,
+            request=None,
+            generate_assets=False
+        )
+        depth = slider_data[1]
+        label = "Pixel-Perfect Depth"
+        return depth, label
+    else:
+        raise ValueError(f"Unknown model key: {model_key}")
     colored = colorize_depth(depth)
     return colored, label
 
@@ -288,7 +445,12 @@ def get_example_images() -> List[str]:
 
     # Try both v1 and v2 examples
     examples = []
-    for ex_dir in ["assets/examples", "Depth-Anything/assets/examples", "Depth-Anything-V2/assets/examples"]:
+    for ex_dir in [
+        "assets/examples",
+        "Depth-Anything/assets/examples",
+        "Depth-Anything-V2/assets/examples",
+        "Pixel-Perfect-Depth/assets/examples",
+    ]:
         ex_path = os.path.join(os.path.dirname(__file__), ex_dir)
         if os.path.exists(ex_path):
             # Get all image files and sort them naturally
@@ -314,15 +476,16 @@ def create_app():
     model_choices = get_model_choices()
     default1 = model_choices[0][1]
     default2 = model_choices[1][1]
+    example_images = get_example_images()
     with gr.Blocks(title="Depth Anything v1 vs v2 Comparison", theme=gr.themes.Soft()) as app:
         gr.Markdown("""
-        # Depth Anything v1 vs v2 Comparison
-        Compare different Depth Anything models (v1 and v2) side-by-side or with a slider.
+        # Depth Estimation Comparison
+        Compare Depth Anything v1, Depth Anything v2, and Pixel-Perfect Depth side-by-side or with a slider.
         """)
         with gr.Tabs():  # Select the first tab (Slider Comparison) by default
             with gr.Tab("🎚️ Slider Comparison"):
                 with gr.Row():
-                    img_input2 = gr.Image(label="Input Image")
+                    img_input2 = gr.Image(label="Input Image", type="numpy")
                     with gr.Column():
                         m1s = gr.Dropdown(choices=model_choices, label="Model A", value=default1)
                         m2s = gr.Dropdown(choices=model_choices, label="Model B", value=default2)
@@ -331,15 +494,13 @@ def create_app():
                 slider_status = gr.Markdown()
                 btn2.click(slider_compare, inputs=[img_input2, m1s, m2s], outputs=[slider, slider_status], show_progress=True)
 
-                # Simple Examples - Tab 2
-                ex_imgs = get_example_images()
-                if ex_imgs:
+                if example_images:
                     def slider_example_fn(image):
                         return slider_compare(image, default1, default2)
-                    examples2 = gr.Examples(examples=ex_imgs, inputs=[img_input2], outputs=[slider, slider_status], fn=slider_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input2], outputs=[slider, slider_status], fn=slider_example_fn)
             with gr.Tab("🔍 Method Comparison"):
                 with gr.Row():
-                    img_input = gr.Image(label="Input Image")
+                    img_input = gr.Image(label="Input Image", type="numpy")
                     with gr.Column():
                         m1 = gr.Dropdown(choices=model_choices, label="Model 1", value=default1)
                         m2 = gr.Dropdown(choices=model_choices, label="Model 2", value=default2)
@@ -348,30 +509,28 @@ def create_app():
                 out_status = gr.Markdown()
                 btn.click(compare_models, inputs=[img_input, m1, m2], outputs=[out_img, out_status], show_progress=True)
 
-                # Simple Examples - Clean approach
-                ex_imgs = get_example_images()
-                if ex_imgs:
+                if example_images:
                     def compare_example_fn(image):
                         return compare_models(image, default1, default2)
-                    examples = gr.Examples(examples=ex_imgs, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
             with gr.Tab("📷 Single Model"):
                 with gr.Row():
-                    img_input3 = gr.Image(label="Input Image")
+                    img_input3 = gr.Image(label="Input Image", type="numpy")
                     m_single = gr.Dropdown(choices=model_choices, label="Model", value=default1)
                     btn3 = gr.Button("Run", variant="primary")
                 single_slider = gr.ImageSlider(label="Original vs Depth")
                 out_single_status = gr.Markdown()
                 btn3.click(single_inference, inputs=[img_input3, m_single], outputs=[single_slider, out_single_status], show_progress=True)
 
-                # Simple Examples - Tab 3
-                if ex_imgs:
+                if example_images:
                     def single_example_fn(image):
                         return single_inference(image, default1)
-                    examples3 = gr.Examples(examples=ex_imgs, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
         gr.Markdown("""
         ---
         - **v1**: [Depth Anything v1](https://github.com/LiheYoung/Depth-Anything)
         - **v2**: [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
+        - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         """)
     return app
 

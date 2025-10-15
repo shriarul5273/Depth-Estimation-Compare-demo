@@ -17,9 +17,9 @@ jobs:
         env:
           HF: ${{secrets.HF_TOKEN }}
           HFUSER: ${{secrets.HFUSER }}
-        run: git remote add space https://$HFUSER:$HF@huggingface.co/spaces/$HFUSER/Depth-Anything-Compare-demo
-      - name: Push to hub
+        run: git remote add space https://$HFUSER:$HF@huggingface.co/spaces/$HFUSER/Depth-Estimation-Compare-demo
+      - name: Push to huggingface hub
         env:
           HF: ${{ secrets.HF_TOKEN}}
           HFUSER: ${{secrets.HFUSER }}
-        run: git push --force https://$HFUSER:$HF@huggingface.co/spaces/$HFUSER/Depth-Anything-Compare-demo main
+        run: git push --force https://$HFUSER:$HF@huggingface.co/spaces/$HFUSER/Depth-Estimation-Compare-demo main

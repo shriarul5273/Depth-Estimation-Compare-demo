@@ -1,7 +1,7 @@
 """
-Depth Anything Comparison Demo (v1 vs v2) - ZeroGPU Version
+Depth Estimation Comparison Demo (ZeroGPU)
 
-Compare different Depth Anything models (v1 and v2) side-by-side or with a slider using Gradio.
+Compare Depth Anything v1, Depth Anything v2, and Pixel-Perfect Depth side-by-side or with a slider using Gradio.
 Optimized for HuggingFace Spaces with ZeroGPU support.
 """
 
@@ -9,19 +9,17 @@ import os
 import sys
 import logging
 import gc
-import tempfile
-from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, List
 import numpy as np
 import cv2
 import gradio as gr
-from PIL import Image
 from huggingface_hub import hf_hub_download
 import spaces
 
 # Import v1 and v2 model code
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything-V2"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Pixel-Perfect-Depth"))
 
 # v1 imports
 from depth_anything.dpt import DepthAnything as DepthAnythingV1
@@ -35,11 +33,20 @@ from depth_anything_v2.dpt import DepthAnythingV2
 
 import matplotlib
 
+# Pixel-Perfect Depth imports
+from ppd.utils.set_seed import set_seed
+from ppd.utils.align_depth_func import recover_metric_depth_ransac
+from moge.model.v2 import MoGeModel
+from ppd.models.ppd import PixelPerfectDepth
+
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Device selection - ZeroGPU will handle GPU allocation
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+TORCH_DEVICE = torch.device(DEVICE)
+
+set_seed(666)
 
 # Model configs
 V1_MODEL_CONFIGS = {
@@ -78,6 +85,11 @@ V2_MODEL_CONFIGS = {
 # Model cache - cleared after each inference for ZeroGPU
 _v1_models = {}
 _v2_models = {}
+_ppd_model: Optional[PixelPerfectDepth] = None
+_moge_model: Optional[MoGeModel] = None
+
+PPD_DEFAULT_STEPS = 20
+_ppd_cmap = matplotlib.colormaps.get_cmap('Spectral')
 
 # v1 transform
 v1_transform = Compose([
@@ -150,13 +162,15 @@ def load_v2_model(key: str):
 
 def clear_model_cache():
     """Clear model cache to free GPU memory for ZeroGPU"""
-    global _v1_models, _v2_models
+    global _v1_models, _v2_models, _ppd_model, _moge_model
     for model in _v1_models.values():
         del model
     for model in _v2_models.values():
         del model
     _v1_models.clear()
     _v2_models.clear()
+    _ppd_model = None
+    _moge_model = None
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -183,12 +197,76 @@ def colorize_depth(depth: np.ndarray) -> np.ndarray:
     colored = (cmap(depth_uint8)[:, :, :3] * 255).astype(np.uint8)
     return colored
 
+
+def _normalize_depth_to_rgb(depth: np.ndarray) -> np.ndarray:
+    depth_vis = (depth - depth.min()) / (depth.max() - depth.min() + 1e-5) * 255.0
+    depth_vis = depth_vis.astype(np.uint8)
+    colored = (_ppd_cmap(depth_vis)[:, :, :3] * 255).astype(np.uint8)
+    return colored
+
+
+def load_ppd_model() -> PixelPerfectDepth:
+    global _ppd_model
+    if _ppd_model is not None:
+        return _ppd_model
+
+    model = PixelPerfectDepth(sampling_steps=PPD_DEFAULT_STEPS)
+    ckpt_path = hf_hub_download(
+        repo_id="gangweix/Pixel-Perfect-Depth",
+        filename="ppd.pth",
+        repo_type="model"
+    )
+    state_dict = torch.load(ckpt_path, map_location="cpu")
+    model.load_state_dict(state_dict, strict=False)
+    model = model.to(TORCH_DEVICE).eval()
+    _ppd_model = model
+    return _ppd_model
+
+
+def load_moge_model() -> MoGeModel:
+    global _moge_model
+    if _moge_model is not None:
+        return _moge_model
+
+    model = MoGeModel.from_pretrained("Ruicheng/moge-2-vitl-normal").eval()
+    model = model.to(TORCH_DEVICE)
+    _moge_model = model
+    return _moge_model
+
+
+def pixel_perfect_depth_inference(image_bgr: np.ndarray, denoise_steps: int = PPD_DEFAULT_STEPS) -> Tuple[np.ndarray, np.ndarray]:
+    if image_bgr is None:
+        raise ValueError("Pixel-Perfect Depth received an empty image.")
+
+    ppd_model = load_ppd_model()
+    moge_model = load_moge_model()
+
+    H, W = image_bgr.shape[:2]
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    with torch.no_grad():
+        depth_rel, resize_image = ppd_model.infer_image(image_bgr, sampling_steps=denoise_steps)
+
+    rgb_tensor = torch.tensor(cv2.cvtColor(resize_image, cv2.COLOR_BGR2RGB) / 255, dtype=torch.float32, device=TORCH_DEVICE).permute(2, 0, 1)
+
+    with torch.no_grad():
+        metric_depth, mask, intrinsics = moge_model.infer(rgb_tensor)
+
+    metric_depth[~mask] = metric_depth[mask].max()
+    metric_depth_aligned = recover_metric_depth_ransac(depth_rel, metric_depth, mask)
+
+    depth_full = cv2.resize(metric_depth_aligned, (W, H), interpolation=cv2.INTER_LINEAR)
+    colored_depth = _normalize_depth_to_rgb(depth_full)
+
+    return image_rgb, colored_depth
+
 def get_model_choices() -> List[Tuple[str, str]]:
     choices = []
     for k, v in V1_MODEL_CONFIGS.items():
         choices.append((v['display_name'], f'v1_{k}'))
     for k, v in V2_MODEL_CONFIGS.items():
         choices.append((v['display_name'], f'v2_{k}'))
+    choices.append(("Pixel-Perfect Depth", "ppd"))
     return choices
 
 @spaces.GPU
@@ -200,14 +278,21 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
             model = load_v1_model(key)
             depth = predict_v1(model, image)
             label = V1_MODEL_CONFIGS[key]['display_name']
-        else:
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key.startswith('v2_'):
             key = model_key[3:]
             model = load_v2_model(key)
             depth = predict_v2(model, image)
             label = V2_MODEL_CONFIGS[key]['display_name']
-        
-        colored = colorize_depth(depth)
-        return colored, label
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key == 'ppd':
+            clear_model_cache()
+            _, colored = pixel_perfect_depth_inference(image)
+            return colored, "Pixel-Perfect Depth"
+        else:
+            raise ValueError(f"Unknown model key: {model_key}")
     finally:
         # Clean up GPU memory after inference
         if torch.cuda.is_available():
@@ -226,6 +311,10 @@ def compare_models(image, model1: str, model2: str, progress=gr.Progress()) -> T
             image = cv2.imread(image)
         elif hasattr(image, 'save'):
             # If it's a PIL Image
+            image = np.array(image)
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        else:
             image = np.array(image)
             if len(image.shape) == 3 and image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -268,6 +357,10 @@ def slider_compare(image, model1: str, model2: str, progress=gr.Progress()):
             image = cv2.imread(image)
         elif hasattr(image, 'save'):
             # If it's a PIL Image
+            image = np.array(image)
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        else:
             image = np.array(image)
             if len(image.shape) == 3 and image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -346,7 +439,12 @@ def get_example_images() -> List[str]:
 
     # Try both v1 and v2 examples
     examples = []
-    for ex_dir in ["assets/examples", "Depth-Anything/assets/examples", "Depth-Anything-V2/assets/examples"]:
+    for ex_dir in [
+        "assets/examples",
+        "Depth-Anything/assets/examples",
+        "Depth-Anything-V2/assets/examples",
+        "Pixel-Perfect-Depth/assets/examples",
+    ]:
         ex_path = os.path.join(os.path.dirname(__file__), ex_dir)
         if os.path.exists(ex_path):
             # Get all image files and sort them naturally
@@ -370,13 +468,17 @@ def get_paginated_examples(examples: List[str], page: int = 0, per_page: int = 6
 
 def create_app():
     model_choices = get_model_choices()
-    default1 = model_choices[0][1]
-    default2 = model_choices[1][1]
+    default1 = next((value for _, value in model_choices if value.startswith('v1_')), model_choices[0][1])
+    default2 = next((value for _, value in model_choices if value == 'ppd'), None)
+    if default2 is None:
+        default2 = next((value for _, value in model_choices if value.startswith('v2_') and value != default1), model_choices[min(1, len(model_choices) - 1)][1])
     
-    with gr.Blocks(title="Depth Anything v1 vs v2 Comparison", theme=gr.themes.Soft()) as app:
+    example_images = get_example_images()
+
+    with gr.Blocks(title="Depth Estimation Comparison", theme=gr.themes.Soft()) as app:
         gr.Markdown("""
-        # Depth Anything v1 vs v2 Comparison
-        Compare different Depth Anything models (v1 and v2) side-by-side or with a slider.
+        # Depth Estimation Comparison
+        Compare Depth Anything v1, Depth Anything v2, and Pixel-Perfect Depth side-by-side or with a slider.
         
         ⚡ **Running on ZeroGPU** - GPU resources are allocated automatically for inference.
         """)
@@ -384,7 +486,7 @@ def create_app():
         with gr.Tabs():
             with gr.Tab("🎚️ Slider Comparison"):
                 with gr.Row():
-                    img_input2 = gr.Image(label="Input Image")
+                    img_input2 = gr.Image(label="Input Image", type="numpy")
                     with gr.Column():
                         m1s = gr.Dropdown(choices=model_choices, label="Model A", value=default1)
                         m2s = gr.Dropdown(choices=model_choices, label="Model B", value=default2)
@@ -394,15 +496,14 @@ def create_app():
                 btn2.click(slider_compare, inputs=[img_input2, m1s, m2s], outputs=[slider, slider_status], show_progress=True)
 
                 # Examples for slider comparison
-                ex_imgs = get_example_images()
-                if ex_imgs:
+                if example_images:
                     def slider_example_fn(image):
                         return slider_compare(image, default1, default2)
-                    examples2 = gr.Examples(examples=ex_imgs, inputs=[img_input2], outputs=[slider, slider_status], fn=slider_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input2], outputs=[slider, slider_status], fn=slider_example_fn)
 
             with gr.Tab("🔍 Method Comparison"):
                 with gr.Row():
-                    img_input = gr.Image(label="Input Image")
+                    img_input = gr.Image(label="Input Image", type="numpy")
                     with gr.Column():
                         m1 = gr.Dropdown(choices=model_choices, label="Model 1", value=default1)
                         m2 = gr.Dropdown(choices=model_choices, label="Model 2", value=default2)
@@ -412,14 +513,14 @@ def create_app():
                 btn.click(compare_models, inputs=[img_input, m1, m2], outputs=[out_img, out_status], show_progress=True)
 
                 # Examples for method comparison
-                if ex_imgs:
+                if example_images:
                     def compare_example_fn(image):
                         return compare_models(image, default1, default2)
-                    examples = gr.Examples(examples=ex_imgs, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
 
-            with gr.Tab("� Single Model"):
+            with gr.Tab("📷 Single Model"):
                 with gr.Row():
-                    img_input3 = gr.Image(label="Input Image")
+                    img_input3 = gr.Image(label="Input Image", type="numpy")
                     with gr.Column():
                         m_single = gr.Dropdown(choices=model_choices, label="Model", value=default1)
                         btn3 = gr.Button("Run", variant="primary")
@@ -428,16 +529,17 @@ def create_app():
                 btn3.click(single_inference, inputs=[img_input3, m_single], outputs=[single_slider, out_single_status], show_progress=True)
 
                 # Examples for single model
-                if ex_imgs:
+                if example_images:
                     def single_example_fn(image):
                         return single_inference(image, default1)
-                    examples3 = gr.Examples(examples=ex_imgs, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
 
         gr.Markdown("""
         ---
         **References:**
         - **v1**: [Depth Anything v1](https://github.com/LiheYoung/Depth-Anything)
         - **v2**: [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
+        - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         
         **Note**: This app uses ZeroGPU for efficient GPU resource management. Models are loaded on-demand and GPU memory is automatically cleaned up after each inference.
         """)
@@ -445,7 +547,7 @@ def create_app():
     return app
 
 def main():
-    logging.info("🚀 Starting Depth Anything Comparison App on ZeroGPU...")
+    logging.info("🚀 Starting Depth Estimation Comparison App on ZeroGPU...")
     app = create_app()
     app.queue().launch(show_error=True)
 
