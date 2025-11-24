@@ -1,8 +1,15 @@
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import torch
+
+# Add src directory to Python path to import depth_anything_3 module
+src_path = os.path.join(os.path.dirname(__file__), 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.visualize import visualize_depth
 
