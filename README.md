@@ -4,31 +4,34 @@ emoji: 👀
 colorFrom: indigo
 colorTo: indigo
 sdk: gradio
-sdk_version: 5.49.1
+sdk_version: 6.0.0
 app_file: app.py
 pinned: false
 ---
 
 # Depth Estimation Comparison Demo
 
-A ZeroGPU-friendly Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, and **Pixel-Perfect Depth (PPD)** on the same image. Switch between side-by-side layouts, a slider overlay, or single-model inspection to understand how different pipelines perceive scene geometry.
+A Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, **Depth Anything v3 (AnySize)**, and **Pixel-Perfect Depth (PPD)** on the same image. Switch between side-by-side layouts, a slider overlay, single-model inspection, or a dedicated v3 tab to understand how different pipelines perceive scene geometry. Two entrypoints are provided:
+
+- `app_local.py` – full-featured local runner with minimal memory constraints.
+- `app.py` – ZeroGPU-aware build tuned for HuggingFace Spaces with aggressive cache management.
 
 ## 🚀 Highlights
-- **Three interactive views**: draggable slider, labeled side-by-side comparison, and original vs depth for any single model.
-- **Multi-family depth models**: run ViT variants from Depth Anything v1/v2 alongside Pixel-Perfect Depth with MoGe metric alignment.
-- **ZeroGPU aware**: on-demand loading, model cache clearing, and torch CUDA cleanup keep GPU usage inside HuggingFace Spaces limits.
-- **Curated examples**: reusable demo images sourced from each model family plus local assets to quickly validate behaviour.
+- **Four interactive experiences**: draggable slider, labeled side-by-side comparison, original-vs-depth slider, and a Depth Anything v3 tab with RGB vs depth visualization + metadata.
+- **Multi-family depth models**: run ViT variants from Depth Anything v1/v2/v3 alongside Pixel-Perfect Depth with MoGe metric alignment.
+- **ZeroGPU aware**: `app.py` performs on-demand loading, cache clearing, and CUDA cleanup to stay within HuggingFace Spaces limits, while `app_local.py` keeps models warm for faster iteration.
+- **Curated examples**: reusable demo images sourced from each model family (`assets/examples`, `Depth-Anything*/assets/examples`, `Depth-Anything-3-anysize/assets/examples`, `Pixel-Perfect-Depth/assets/examples`).
 
 ## 🔍 Supported Pipelines
 - **Depth Anything v1** (`LiheYoung/depth_anything_*`): ViT-S/B/L with fast transformer backbones and colorized outputs via `Spectral_r` colormap.
-- **Depth Anything v2** (`Depth-Anything-V2/checkpoints/*.pth`): ViT-Small/Base/Large with HF Hub fallback, configurable feature channels, and improved edge handling.
+- **Depth Anything v2** (`Depth-Anything-V2/checkpoints/*.pth` or HF Hub mirrors): ViT-Small/Base/Large with configurable feature channels and improved edge handling.
+- **Depth Anything v3 (AnySize)** (`depth-anything/DA3*` via bundled AnySize fork): Nested, giant, large, base, small, mono, and metric variants with native-resolution inference and automatic padding/cropping.
 - **Pixel-Perfect Depth**: Diffusion-based relative depth refined by the **MoGe** metric surface model and RANSAC alignment to recover metric depth; customizable denoising steps.
 
 ## 🖥️ App Experience
-- **Slider Comparison**: drag between two predictions with automatically labeled overlays.
+- **Slider Comparison**: drag between any two predictions with automatically labeled overlays.
 - **Method Comparison**: view models side-by-side with synchronized layout and captions rendered in OpenCV.
 - **Single Model**: inspect the RGB input versus one model output using the Gradio `ImageSlider` component.
-- **Example Gallery**: natural-number sorting across `assets/examples`, `Depth-Anything/assets/examples`, `Depth-Anything-V2/assets/examples`, and `Pixel-Perfect-Depth/assets/examples`.
 
 ## 📦 Installation & Setup
 
@@ -42,44 +45,57 @@ A ZeroGPU-friendly Gradio interface for comparing **Depth Anything v1**, **Depth
    ```bash
    pip install -r requirements.txt
    ```
-3. **Model assets**:
+3. **Install the AnySize fork** (required for Depth Anything v3 tab):
+   ```bash
+   pip install -e Depth-Anything-3-anysize/.[all]
+   ```
+4. **Model assets**:
    - Depth Anything v1 checkpoints stream automatically from the HuggingFace Hub.
    - Download Depth Anything v2 weights into `Depth-Anything-V2/checkpoints/` if they are not already present (`depth_anything_v2_vits.pth`, `depth_anything_v2_vitb.pth`, `depth_anything_v2_vitl.pth`).
+   - Depth Anything v3 models download via the bundled AnySize API from `depth-anything/*` repositories at inference time; no manual checkpoints required.
    - Pixel-Perfect Depth pulls the diffusion checkpoint (`ppd.pth`) from `gangweix/Pixel-Perfect-Depth` on first use and loads MoGe weights (`Ruicheng/moge-2-vitl-normal`).
-4. **Run the app**:
+5. **Run the app**:
    ```bash
-   python app_local.py   # Local UI with live reload tweaks
-   python app.py         # ZeroGPU-ready launch script
+   python app_local.py   # Local UI with v3 tab and warm caches
+   python app.py         # ZeroGPU-ready launch script (loads models on demand)
    ```
 
 ### HuggingFace Spaces (ZeroGPU)
 1. Push the repository contents to a Gradio Space.
 2. Select the **ZeroGPU** hardware preset.
-3. The app will download required checkpoints on demand and aggressively free memory after each inference via `clear_model_cache()`.
+3. The app downloads required checkpoints (Depth Anything v1/v2/v3, PPD, MoGe) on demand and aggressively frees memory via `clear_model_cache()` between requests.
 
 ## 📁 Project Structure
 ```
 Depth-Estimation-Compare-demo/
-├── app.py                 # ZeroGPU deployment entrypoint
-├── app_local.py           # Local-friendly launch script
-├── requirements.txt       # Python dependencies (Gradio, Torch, PPD stack)
+├── app.py                        # ZeroGPU deployment entrypoint (includes v3 tab)
+├── app_local.py                  # Local-friendly launch script (full feature set)
+├── requirements.txt              # Python dependencies (Gradio, Torch, PPD stack)
 ├── assets/
-│   └── examples/          # Shared demo imagery
-├── Depth-Anything/        # Depth Anything v1 implementation + utilities
-├── Depth-Anything-V2/     # Depth Anything v2 implementation & checkpoints
-├── Pixel-Perfect-Depth/   # Pixel-Perfect Depth diffusion + MoGe helpers
-└── README.md              # You are here
+│   └── examples/                 # Shared demo imagery
+├── Depth-Anything/               # Depth Anything v1 implementation + utilities
+├── Depth-Anything-V2/            # Depth Anything v2 implementation & checkpoints
+├── Depth-Anything-3-anysize/     # Bundled AnySize fork powering Depth Anything v3 tab
+│   ├── app.py                    # Standalone AnySize Gradio demo (optional)
+│   ├── depth3_anysize.py         # Scripted inference example
+│   ├── pyproject.toml            # Editable install metadata
+│   ├── requirements.txt          # AnySize-specific dependencies
+│   └── src/depth_anything_3/     # AnySize API, configs, and model code
+├── Pixel-Perfect-Depth/          # Pixel-Perfect Depth diffusion + MoGe helpers
+└── README.md                     # You are here
 ```
 
 ## ⚙️ Configuration Notes
-- Model dropdown labels come from `V1_MODEL_CONFIGS`, `V2_MODEL_CONFIGS`, and the PPD entry in `app.py`.
-- `clear_model_cache()` resets every model and flushes CUDA to respect ZeroGPU constraints.
+- Model dropdown labels come from `V1_MODEL_CONFIGS`, `V2_MODEL_CONFIGS`, and `DA3_MODEL_SOURCES` plus the PPD entry in both apps.
+- `clear_model_cache()` resets every model family (v1/v2/v3/PPD) and flushes CUDA to respect ZeroGPU constraints in `app.py`.
+- Depth Anything v3 inference leverages the AnySize API (`process_res=None`, `process_res_method="keep"`) to preserve native resolution and returns processed RGB/depth pairs.
 - Pixel-Perfect Depth inference aligns relative depth to metric scale through `recover_metric_depth_ransac()` for consistent visualization.
 - Depth visualizations use a normalized `Spectral_r` colormap; PPD uses a dedicated matplotlib colormap for metric maps.
 
 ## 📊 Performance Expectations
 - **Depth Anything v1**: ViT-S ~1–2 s, ViT-B ~2–4 s, ViT-L ~4–8 s (image dependent).
 - **Depth Anything v2**: similar to v1 with improved sharpness; HF downloads add one-time startup overhead.
+- **Depth Anything v3**: nested/giant models are heavier (expect longer cold starts), while base/small options are close to v2 latency when running at native resolution.
 - **Pixel-Perfect Depth**: diffusion + metric refinement typically takes longer (10–20 denoise steps) but returns metrically-aligned depth suitable for downstream 3D tasks.
 
 ## 🎯 Usage Tips
@@ -95,6 +111,7 @@ Enhancements are welcome—new model backends, visualization modes, or memory op
 - [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
 - [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
 - [MoGe](https://huggingface.co/Ruicheng/moge-2-vitl-normal)
+- [Depth Anything 3 AnySize Fork](https://github.com/ByteDance-Seed/Depth-Anything-3) (see bundled `Depth-Anything-3-anysize` directory)
 
 ## 📄 License
 - Depth Anything v1: MIT License

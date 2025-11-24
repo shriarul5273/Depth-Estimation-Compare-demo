@@ -1,0 +1,24 @@
+torchvision
+einops
+huggingface_hub
+imageio
+opencv-python
+open3d
+fastapi
+requests
+evo
+e3nn
+moviepy==1.0.3
+plyfile
+pillow_heif
+safetensors
+pycolmap
+torch>=2
+uvicorn
+typer>=0.9.0
+pillow
+pre-commit
+trimesh
+numpy<2
+omegaconf
+-e .[all]

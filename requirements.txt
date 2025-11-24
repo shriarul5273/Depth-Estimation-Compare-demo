@@ -15,3 +15,4 @@ scikit-learn
 git+https://github.com/EasternJournalist/utils3d.git@c5daf6f6c244d251f252102d09e9b7bcef791a38
 click           # ==8.1.7
 trimesh         # ==4.5.1
+-e Depth-Anything-3-anysize/.[all]

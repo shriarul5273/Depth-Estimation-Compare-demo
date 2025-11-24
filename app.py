@@ -1,7 +1,7 @@
 """
 Depth Estimation Comparison Demo (ZeroGPU)
 
-Compare Depth Anything v1, Depth Anything v2, and Pixel-Perfect Depth side-by-side or with a slider using Gradio.
+Compare Depth Anything v1, Depth Anything v2, Depth Anything v3, and Pixel-Perfect Depth side-by-side or with a slider using Gradio.
 Optimized for HuggingFace Spaces with ZeroGPU support.
 """
 
@@ -9,16 +9,19 @@ import os
 import sys
 import logging
 import gc
-from typing import Optional, Tuple, List
+import inspect
+from typing import Optional, Tuple, List, Dict
 import numpy as np
 import cv2
 import gradio as gr
 from huggingface_hub import hf_hub_download
 import spaces
+from PIL import Image
 
 # Import v1 and v2 model code
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything-V2"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything-3-anysize", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Pixel-Perfect-Depth"))
 
 # v1 imports
@@ -32,6 +35,10 @@ from torchvision.transforms import Compose
 from depth_anything_v2.dpt import DepthAnythingV2
 
 import matplotlib
+
+# Depth Anything v3 imports
+from depth_anything_3.api import DepthAnything3
+from depth_anything_3.utils.visualize import visualize_depth
 
 # Pixel-Perfect Depth imports
 from ppd.utils.set_seed import set_seed
@@ -82,9 +89,41 @@ V2_MODEL_CONFIGS = {
     }
 }
 
+DA3_MODEL_SOURCES: Dict[str, Dict[str, str]] = {
+    "nested_giant_large": {
+        "display_name": "Depth Anything v3 Nested Giant Large",
+        "repo_id": "depth-anything/DA3NESTED-GIANT-LARGE",
+    },
+    "giant": {
+        "display_name": "Depth Anything v3 Giant",
+        "repo_id": "depth-anything/DA3-GIANT",
+    },
+    "large": {
+        "display_name": "Depth Anything v3 Large",
+        "repo_id": "depth-anything/DA3-LARGE",
+    },
+    "base": {
+        "display_name": "Depth Anything v3 Base",
+        "repo_id": "depth-anything/DA3-BASE",
+    },
+    "small": {
+        "display_name": "Depth Anything v3 Small",
+        "repo_id": "depth-anything/DA3-SMALL",
+    },
+    "metric_large": {
+        "display_name": "Depth Anything v3 Metric Large",
+        "repo_id": "depth-anything/DA3METRIC-LARGE",
+    },
+    "mono_large": {
+        "display_name": "Depth Anything v3 Mono Large",
+        "repo_id": "depth-anything/DA3MONO-LARGE",
+    },
+}
+
 # Model cache - cleared after each inference for ZeroGPU
 _v1_models = {}
 _v2_models = {}
+_da3_models: Dict[str, DepthAnything3] = {}
 _ppd_model: Optional[PixelPerfectDepth] = None
 _moge_model: Optional[MoGeModel] = None
 
@@ -160,15 +199,83 @@ def load_v2_model(key: str):
     _v2_models[key] = model
     return model
 
+
+def load_da3_model(key: str) -> DepthAnything3:
+    if key in _da3_models:
+        return _da3_models[key]
+
+    clear_model_cache()
+
+    repo_id = DA3_MODEL_SOURCES[key]["repo_id"]
+    model = DepthAnything3.from_pretrained(repo_id)
+    model = model.to(device=TORCH_DEVICE)
+    model.eval()
+    _da3_models[key] = model
+    return model
+
+
+def _prep_da3_image(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 2:
+        image = np.stack([image] * 3, axis=-1)
+    if image.dtype != np.uint8:
+        image = np.clip(image, 0, 255).astype(np.uint8)
+    return image
+
+
+def run_da3_inference(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, str, str]:
+    model = load_da3_model(model_key)
+    if image.ndim == 2:
+        rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    else:
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    rgb = _prep_da3_image(rgb)
+    prediction = model.inference(
+        image=[Image.fromarray(rgb)],
+        process_res=None,
+        process_res_method="keep",
+    )
+
+    depth_map = prediction.depth[0]
+    depth_vis = visualize_depth(depth_map, cmap="Spectral")
+    processed_rgb = (
+        prediction.processed_images[0]
+        if getattr(prediction, "processed_images", None) is not None
+        else rgb
+    )
+    processed_rgb = np.clip(processed_rgb, 0, 255).astype(np.uint8)
+
+    target_h, target_w = image.shape[:2]
+    if depth_vis.shape[:2] != (target_h, target_w):
+        depth_vis = cv2.resize(depth_vis, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    if processed_rgb.shape[:2] != (target_h, target_w):
+        processed_rgb = cv2.resize(processed_rgb, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+    label = DA3_MODEL_SOURCES[model_key]["display_name"]
+    info_lines = [
+        f"**Model:** `{label}`",
+        f"**Repo:** `{DA3_MODEL_SOURCES[model_key]['repo_id']}`",
+        f"**Device:** `{str(TORCH_DEVICE)}`",
+        f"**Depth shape:** `{tuple(prediction.depth.shape)}`",
+    ]
+    if getattr(prediction, "extrinsics", None) is not None:
+        info_lines.append(f"**Extrinsics shape:** `{prediction.extrinsics.shape}`")
+    if getattr(prediction, "intrinsics", None) is not None:
+        info_lines.append(f"**Intrinsics shape:** `{prediction.intrinsics.shape}`")
+
+    return depth_vis, processed_rgb, "\n".join(info_lines), label
+
 def clear_model_cache():
     """Clear model cache to free GPU memory for ZeroGPU"""
-    global _v1_models, _v2_models, _ppd_model, _moge_model
+    global _v1_models, _v2_models, _da3_models, _ppd_model, _moge_model
     for model in _v1_models.values():
         del model
     for model in _v2_models.values():
         del model
+    for model in _da3_models.values():
+        del model
     _v1_models.clear()
     _v2_models.clear()
+    _da3_models.clear()
     _ppd_model = None
     _moge_model = None
     gc.collect()
@@ -266,6 +373,8 @@ def get_model_choices() -> List[Tuple[str, str]]:
         choices.append((v['display_name'], f'v1_{k}'))
     for k, v in V2_MODEL_CONFIGS.items():
         choices.append((v['display_name'], f'v2_{k}'))
+    for k, v in DA3_MODEL_SOURCES.items():
+        choices.append((v['display_name'], f'da3_{k}'))
     choices.append(("Pixel-Perfect Depth", "ppd"))
     return choices
 
@@ -287,6 +396,10 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
             label = V2_MODEL_CONFIGS[key]['display_name']
             colored = colorize_depth(depth)
             return colored, label
+        elif model_key.startswith('da3_'):
+            key = model_key[4:]
+            depth_vis, _, _, label = run_da3_inference(key, image)
+            return depth_vis, label
         elif model_key == 'ppd':
             clear_model_cache()
             _, colored = pixel_perfect_depth_inference(image)
@@ -429,6 +542,37 @@ def single_inference(image, model: str, progress=gr.Progress()):
         # Clean up GPU memory after inference
         clear_model_cache()
 
+
+@spaces.GPU
+def da3_single_inference(image, model: str, progress=gr.Progress()):
+    if image is None:
+        return None, "❌ Please upload an image."
+
+    try:
+        if isinstance(image, str):
+            np_image = cv2.imread(image)
+        elif hasattr(image, "save"):
+            np_image = np.array(image)
+            if len(np_image.shape) == 3 and np_image.shape[2] == 3:
+                np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
+        else:
+            np_image = np.array(image)
+            if len(np_image.shape) == 3 and np_image.shape[2] == 3:
+                np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
+
+        if np_image is None:
+            raise gr.Error("Invalid image input.")
+
+        key = model[4:] if model.startswith("da3_") else model
+
+        progress(0.1, desc=f"Running {model}")
+        depth_vis, processed_rgb, info_text, _ = run_da3_inference(key, np_image)
+        progress(1.0, desc="Done")
+        return (processed_rgb, depth_vis), info_text
+
+    finally:
+        clear_model_cache()
+
 def get_example_images() -> List[str]:
     import re
 
@@ -443,6 +587,7 @@ def get_example_images() -> List[str]:
         "assets/examples",
         "Depth-Anything/assets/examples",
         "Depth-Anything-V2/assets/examples",
+        "Depth-Anything-3-anysize/assets/examples",
         "Pixel-Perfect-Depth/assets/examples",
     ]:
         ex_path = os.path.join(os.path.dirname(__file__), ex_dir)
@@ -474,8 +619,19 @@ def create_app():
         default2 = next((value for _, value in model_choices if value.startswith('v2_') and value != default1), model_choices[min(1, len(model_choices) - 1)][1])
     
     example_images = get_example_images()
+    da3_choices = [(cfg['display_name'], f"da3_{key}") for key, cfg in DA3_MODEL_SOURCES.items()]
+    if not da3_choices:
+        raise ValueError("Depth Anything v3 models are not configured.")
+    da3_default = next((value for name, value in da3_choices if "Large" in name), da3_choices[0][1])
 
-    with gr.Blocks(title="Depth Estimation Comparison", theme=gr.themes.Soft()) as app:
+    blocks_kwargs = {"title": "Depth Estimation Comparison"}
+    try:
+        if "theme" in inspect.signature(gr.Blocks.__init__).parameters and hasattr(gr, "themes"):
+            blocks_kwargs["theme"] = gr.themes.Soft()
+    except (ValueError, TypeError):
+        pass
+
+    with gr.Blocks(**blocks_kwargs) as app:
         gr.Markdown("""
         # Depth Estimation Comparison
         Compare Depth Anything v1, Depth Anything v2, and Pixel-Perfect Depth side-by-side or with a slider.
@@ -539,6 +695,7 @@ def create_app():
         **References:**
         - **v1**: [Depth Anything v1](https://github.com/LiheYoung/Depth-Anything)
         - **v2**: [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
+        - **v3**: [Depth Anything v3](https://github.com/ByteDance-Seed/Depth-Anything-3) & [Depth-Anything-3-anysize](https://github.com/shriarul5273/Depth-Anything-3-anysize)
         - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         
         **Note**: This app uses ZeroGPU for efficient GPU resource management. Models are loaded on-demand and GPU memory is automatically cleaned up after each inference.
