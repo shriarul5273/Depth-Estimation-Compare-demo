@@ -60,9 +60,9 @@ packages = ["src/depth_anything_3"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "README.md",
-  "pyproject.toml",
-  "src/depth_anything_3",
+  "Depth-Anything-3-anysize/README.md",
+  "Depth-Anything-3-anysize/pyproject.toml",
+  "Depth-Anything-3-anysize/src/depth_anything_3",
 ]
 
 [tool.hatch.metadata]
