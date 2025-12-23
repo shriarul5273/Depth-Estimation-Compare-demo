@@ -4,12 +4,16 @@ emoji: 👀
 colorFrom: indigo
 colorTo: indigo
 sdk: gradio
-sdk_version: 6.0.0
+sdk_version: 6.2.0
 app_file: app.py
 pinned: false
 ---
 
 # Depth Estimation Comparison Demo
+
+
+**🌐 Live demo on Hugging Face Spaces (ZeroGPU):** [Depth-Estimation-Compare-demo](https://huggingface.co/spaces/shriarul5273/Depth-Estimation-Compare-demo)
+
 
 A Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, **Depth Anything v3 (AnySize)**, and **Pixel-Perfect Depth (PPD)** on the same image. Switch between side-by-side layouts, a slider overlay, single-model inspection, or a dedicated v3 tab to understand how different pipelines perceive scene geometry. Two entrypoints are provided:
 
