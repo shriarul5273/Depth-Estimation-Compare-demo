@@ -4,7 +4,7 @@ numpy<2
 pillow>=9.5.0
 opencv-python>=4.8.0
 matplotlib>=3.7.0
-gradio>=5
+gradio>=6.2.0
 gradio_imageslider
 huggingface-hub>=0.16.0
 transformers>=4.30.0
