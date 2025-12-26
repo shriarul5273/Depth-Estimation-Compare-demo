@@ -653,9 +653,7 @@ def create_app():
 
                 # Examples for slider comparison
                 if example_images:
-                    def slider_example_fn(image):
-                        return slider_compare(image, default1, default2)
-                    gr.Examples(examples=example_images, inputs=[img_input2], outputs=[slider, slider_status], fn=slider_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input2])
 
             with gr.Tab("🔍 Method Comparison"):
                 with gr.Row():
@@ -670,9 +668,7 @@ def create_app():
 
                 # Examples for method comparison
                 if example_images:
-                    def compare_example_fn(image):
-                        return compare_models(image, default1, default2)
-                    gr.Examples(examples=example_images, inputs=[img_input], outputs=[out_img, out_status], fn=compare_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input])
 
             with gr.Tab("📷 Single Model"):
                 with gr.Row():
@@ -686,9 +682,7 @@ def create_app():
 
                 # Examples for single model
                 if example_images:
-                    def single_example_fn(image):
-                        return single_inference(image, default1)
-                    gr.Examples(examples=example_images, inputs=[img_input3], outputs=[single_slider, out_single_status], fn=single_example_fn)
+                    gr.Examples(examples=example_images, inputs=[img_input3])
 
         gr.Markdown("""
         ---
