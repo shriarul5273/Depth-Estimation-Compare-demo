@@ -1050,6 +1050,9 @@ def create_app():
         - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         - **DepthPro**: [Apple DepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth
         - **ZoeDepth**: [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Metric Depth Estimation
+        - **MiDaS v1**: [Intel DPT-Large](https://huggingface.co/Intel/dpt-large) - Robust Monocular Depth Estimation
+        - **MiDaS v2**: [Intel DPT-Hybrid](https://huggingface.co/Intel/dpt-hybrid-midas) - Fast Monocular Depth Estimation
+        - **MiDaS v3**: [Intel DPT-BEiT-Large](https://huggingface.co/Intel/dpt-beit-large-512) - State-of-the-art Depth Estimation
         
         **Note**: This app uses ZeroGPU for efficient GPU resource management. Models are loaded on-demand and GPU memory is automatically cleaned up after each inference.
         """)

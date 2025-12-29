@@ -131,7 +131,9 @@ Enhancements are welcome—new model backends, visualization modes, or memory op
 - [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
 - [AppleDepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth in Less Than a Second
 - [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Transfer by Combining Relative and Metric Depth
-- [MiDaS](https://github.com/isl-org/MiDaS) - Robust Monocular Depth Estimation
+- [MiDaS v1 (DPT-Large)](https://huggingface.co/Intel/dpt-large) - Robust Monocular Depth Estimation
+- [MiDaS v2 (DPT-Hybrid)](https://huggingface.co/Intel/dpt-hybrid-midas) - Fast Monocular Depth Estimation
+- [MiDaS v3 (DPT-BEiT-Large)](https://huggingface.co/Intel/dpt-beit-large-512) - State-of-the-art Depth Estimation
 
 ## 📄 License
 - Depth Anything v1: MIT License
