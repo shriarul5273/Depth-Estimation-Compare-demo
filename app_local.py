@@ -744,9 +744,9 @@ def get_model_choices() -> List[Tuple[str, str]]:
     choices.append(("Pixel-Perfect Depth", "ppd"))
     choices.append(("AppleDepthPro", "depthpro"))
     choices.append(("Intel ZoeDepth", "zoedepth"))
-    choices.append(("MiDaS v1 (DPT-Large)", "midas"))
-    choices.append(("MiDaS v2 (DPT-Hybrid)", "midas_v2"))
-    choices.append(("MiDaS v3 (BEiT-Large)", "midas_v3"))
+    choices.append(("MiDaS v3.0 (DPT-Large)", "midas"))
+    choices.append(("MiDaS v3.0 (DPT-Hybrid)", "midas_v2"))
+    choices.append(("MiDaS v3.1 (BEiT-Large)", "midas_v3"))
     return choices
 
 def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
@@ -787,17 +787,17 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
         return colored, label
     elif model_key == 'midas':
         depth = predict_midas(image)
-        label = "MiDaS v1 (DPT-Large)"
+        label = "MiDaS v3.0 (DPT-Large)"
         colored = colorize_depth(depth)
         return colored, label
     elif model_key == 'midas_v2':
         depth = predict_midas_v2(image)
-        label = "MiDaS v2 (DPT-Hybrid)"
+        label = "MiDaS v3.0 (DPT-Hybrid)"
         colored = colorize_depth(depth)
         return colored, label
     elif model_key == 'midas_v3':
         depth = predict_midas_v3(image)
-        label = "MiDaS v3 (BEiT-Large)"
+        label = "MiDaS v3.1 (BEiT-Large)"
         colored = colorize_depth(depth)
         return colored, label
     else:
@@ -1013,9 +1013,9 @@ def create_app():
         - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         - **DepthPro**: [Apple DepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth
         - **ZoeDepth**: [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Metric Depth Estimation
-        - **MiDaS v1**: [Intel DPT-Large](https://huggingface.co/Intel/dpt-large) - Robust Monocular Depth Estimation
-        - **MiDaS v2**: [Intel DPT-Hybrid](https://huggingface.co/Intel/dpt-hybrid-midas) - Fast Monocular Depth Estimation
-        - **MiDaS v3**: [Intel DPT-BEiT-Large](https://huggingface.co/Intel/dpt-beit-large-512) - State-of-the-art Depth Estimation
+        - **MiDaS v3.0**: [Intel DPT-Large](https://huggingface.co/Intel/dpt-large) - Robust Monocular Depth Estimation
+        - **MiDaS v3.0**: [Intel DPT-Hybrid](https://huggingface.co/Intel/dpt-hybrid-midas) - Fast Monocular Depth Estimation
+        - **MiDaS v3.1**: [Intel DPT-BEiT-Large](https://huggingface.co/Intel/dpt-beit-large-512) - State-of-the-art Depth Estimation
         """)
     return app
 
