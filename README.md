@@ -125,9 +125,8 @@ Enhancements are welcome—new model backends, visualization modes, or memory op
 ## 📚 References
 - [Depth Anything v1](https://github.com/LiheYoung/Depth-Anything)
 - [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
-- [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
-- [MoGe](https://huggingface.co/Ruicheng/moge-2-vitl-normal)
 - [Depth Anything 3 AnySize Fork](https://github.com/ByteDance-Seed/Depth-Anything-3) (see bundled `Depth-Anything-3-anysize` directory)
+- [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
 - [AppleDepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth in Less Than a Second
 - [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Transfer by Combining Relative and Metric Depth
 
