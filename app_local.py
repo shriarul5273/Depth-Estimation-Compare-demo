@@ -27,6 +27,7 @@ from PIL import Image
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything-V2"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Depth-Anything-3-anysize", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "DepthPro"))
 
 # v1 imports
 from depth_anything.dpt import DepthAnything as DepthAnythingV1
@@ -43,6 +44,9 @@ import matplotlib
 # Depth Anything v3 imports
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.utils.visualize import visualize_depth
+
+# DepthPro imports
+import depth_pro
 
 # Pixel-Perfect Depth imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Pixel-Perfect-Depth"))
@@ -128,6 +132,10 @@ DA3_MODEL_SOURCES = {
 _v1_models = {}
 _v2_models = {}
 _da3_models: Dict[str, DepthAnything3] = {}
+_depth_pro_cache = {
+    "model": None,
+    "transform": None,
+}
 
 # v1 transform
 v1_transform = Compose([
@@ -198,6 +206,92 @@ def load_da3_model(key: str) -> DepthAnything3:
     model.eval()
     _da3_models[key] = model
     return model
+
+
+def load_depth_pro_model():
+    """
+    Load the DepthPro model and preprocessing transforms.
+    Uses caching to avoid reloading the model on every inference.
+    Loads weights from HuggingFace apple/DepthPro depth_pro.pt
+    """
+    global _depth_pro_cache
+    
+    if _depth_pro_cache["model"] is None:
+        logging.info(f"Loading DepthPro model on {TORCH_DEVICE}...")
+        
+        # Download checkpoint from HuggingFace
+        checkpoint_path = hf_hub_download(
+            repo_id="apple/DepthPro",
+            filename="depth_pro.pt",
+            repo_type="model"
+        )
+        logging.info(f"DepthPro checkpoint downloaded to: {checkpoint_path}")
+        
+        # Create the checkpoints directory and symlink to downloaded file
+        depth_pro_dir = os.path.join(os.path.dirname(__file__), "DepthPro")
+        local_checkpoint_dir = os.path.join(depth_pro_dir, "checkpoints")
+        local_checkpoint_path = os.path.join(local_checkpoint_dir, "depth_pro.pt")
+        
+        if not os.path.exists(local_checkpoint_path):
+            os.makedirs(local_checkpoint_dir, exist_ok=True)
+            # Create symlink to the HuggingFace cached file
+            os.symlink(checkpoint_path, local_checkpoint_path)
+            logging.info(f"Created symlink: {local_checkpoint_path} -> {checkpoint_path}")
+        
+        # Create model and transforms
+        model, transform = depth_pro.create_model_and_transforms(device=TORCH_DEVICE)
+        model = model.to(TORCH_DEVICE)
+        model.eval()
+        
+        _depth_pro_cache["model"] = model
+        _depth_pro_cache["transform"] = transform
+        
+        logging.info("DepthPro model loaded successfully!")
+    
+    return _depth_pro_cache["model"], _depth_pro_cache["transform"]
+
+
+def predict_depth_pro(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    Run DepthPro inference on an image.
+    
+    Args:
+        image_bgr: Input image in BGR format (numpy array)
+    
+    Returns:
+        Depth map as numpy array
+    """
+    model, transform = load_depth_pro_model()
+    
+    # Save image temporarily for depth_pro.load_rgb
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+        temp_path = tmp_file.name
+        # Convert BGR to RGB and save
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        Image.fromarray(image_rgb).save(temp_path)
+    
+    try:
+        # Load and preprocess the image
+        image, _, f_px = depth_pro.load_rgb(temp_path)
+        
+        # Apply transform
+        image = transform(image)
+        
+        # Move to device
+        image = image.to(TORCH_DEVICE)
+        
+        # Run inference
+        with torch.no_grad():
+            prediction = model.infer(image, f_px=f_px)
+        
+        # Extract depth in meters
+        depth = prediction["depth"].cpu().numpy()
+        
+    finally:
+        # Clean up temp file
+        os.unlink(temp_path)
+    
+    return depth
 
 
 def _prep_da3_image(image: np.ndarray) -> np.ndarray:
@@ -436,6 +530,7 @@ def get_model_choices() -> List[Tuple[str, str]]:
     for k, v in DA3_MODEL_SOURCES.items():
         choices.append((v['display_name'], f'da3_{k}'))
     choices.append(("Pixel-Perfect Depth", "ppd"))
+    choices.append(("AppleDepthPro", "depthpro"))
     return choices
 
 def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
@@ -464,6 +559,11 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
         depth = slider_data[1]
         label = "Pixel-Perfect Depth"
         return depth, label
+    elif model_key == 'depthpro':
+        depth = predict_depth_pro(image)
+        label = "AppleDepthPro"
+        colored = colorize_depth(depth)
+        return colored, label
     else:
         raise ValueError(f"Unknown model key: {model_key}")
     colored = colorize_depth(depth)
@@ -675,6 +775,7 @@ def create_app():
         - **v2**: [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2)
         - **v3**: [Depth Anything v3](https://github.com/ByteDance-Seed/Depth-Anything-3) & [Depth-Anything-3-anysize](https://github.com/shriarul5273/Depth-Anything-3-anysize)
         - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
+        - **DepthPro**: [Apple DepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth
         """)
     return app
 
