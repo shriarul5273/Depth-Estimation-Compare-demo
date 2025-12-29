@@ -244,9 +244,9 @@ def load_depth_pro_model():
         )
         logging.info(f"DepthPro checkpoint downloaded to: {checkpoint_path}")
         
-        # Create the checkpoints directory and symlink to downloaded file
-        depth_pro_dir = os.path.join(os.path.dirname(__file__), "DepthPro")
-        local_checkpoint_dir = os.path.join(depth_pro_dir, "checkpoints")
+        # Create the checkpoints directory and symlink in current working directory
+        # depth_pro.create_model_and_transforms() looks for ./checkpoints/depth_pro.pt
+        local_checkpoint_dir = "./checkpoints"
         local_checkpoint_path = os.path.join(local_checkpoint_dir, "depth_pro.pt")
         
         if not os.path.exists(local_checkpoint_path):
