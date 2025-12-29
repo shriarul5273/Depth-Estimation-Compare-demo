@@ -139,6 +139,9 @@ _depth_pro_cache = {
     "transform": None,
 }
 _zoedepth_model = None
+_midas_model = None
+_midas_v2_model = None
+_midas_v3_model = None
 
 PPD_DEFAULT_STEPS = 20
 _ppd_cmap = matplotlib.colormaps.get_cmap('Spectral')
@@ -369,6 +372,165 @@ def predict_zoedepth(image_bgr: np.ndarray) -> np.ndarray:
     return depth
 
 
+def load_midas_model():
+    """
+    Load the MiDaS DPT-Large model using HuggingFace transformers pipeline.
+    MiDaS produces high-quality relative depth maps.
+    """
+    global _midas_model
+    
+    if _midas_model is None:
+        clear_model_cache()
+        
+        logging.info(f"Loading MiDaS DPT-Large model on {TORCH_DEVICE}...")
+        
+        _midas_model = hf_pipeline(
+            task="depth-estimation",
+            model="Intel/dpt-large",
+            device=0 if DEVICE == 'cuda' else -1
+        )
+        
+        logging.info("MiDaS DPT-Large model loaded successfully!")
+    
+    return _midas_model
+
+
+def load_midas_v2_model():
+    """
+    Load the MiDaS v2.1 Small model using HuggingFace transformers pipeline.
+    Smaller and faster variant of MiDaS.
+    """
+    global _midas_v2_model
+    
+    if _midas_v2_model is None:
+        clear_model_cache()
+        
+        logging.info(f"Loading MiDaS v2.1 Small model on {TORCH_DEVICE}...")
+        
+        _midas_v2_model = hf_pipeline(
+            task="depth-estimation",
+            model="Intel/dpt-hybrid-midas",
+            device=0 if DEVICE == 'cuda' else -1
+        )
+        
+        logging.info("MiDaS v2.1 model loaded successfully!")
+    
+    return _midas_v2_model
+
+
+def predict_midas(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    Run MiDaS DPT-Large inference on an image.
+    
+    Args:
+        image_bgr: Input image in BGR format (numpy array)
+    
+    Returns:
+        Depth map as numpy array
+    """
+    model = load_midas_model()
+    
+    # Convert BGR to RGB PIL Image
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image_rgb)
+    
+    # Run inference
+    outputs = model(pil_image)
+    
+    # Get depth map and convert to numpy
+    depth = np.array(outputs["depth"])
+    
+    # Resize to match input image size if needed
+    h, w = image_bgr.shape[:2]
+    if depth.shape[:2] != (h, w):
+        depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+    
+    return depth
+
+
+def predict_midas_v2(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    Run MiDaS v2.1 Small inference on an image.
+    
+    Args:
+        image_bgr: Input image in BGR format (numpy array)
+    
+    Returns:
+        Depth map as numpy array
+    """
+    model = load_midas_v2_model()
+    
+    # Convert BGR to RGB PIL Image
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image_rgb)
+    
+    # Run inference
+    outputs = model(pil_image)
+    
+    # Get depth map and convert to numpy
+    depth = np.array(outputs["depth"])
+    
+    # Resize to match input image size if needed
+    h, w = image_bgr.shape[:2]
+    if depth.shape[:2] != (h, w):
+        depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+    
+    return depth
+
+
+def load_midas_v3_model():
+    """
+    Load the MiDaS v3.1 DPT-BEiT-Large model using HuggingFace transformers pipeline.
+    Latest and most accurate MiDaS model.
+    """
+    global _midas_v3_model
+    
+    if _midas_v3_model is None:
+        clear_model_cache()
+        
+        logging.info(f"Loading MiDaS v3.1 DPT-BEiT-Large model on {TORCH_DEVICE}...")
+        
+        _midas_v3_model = hf_pipeline(
+            task="depth-estimation",
+            model="Intel/dpt-beit-large-512",
+            device=0 if DEVICE == 'cuda' else -1
+        )
+        
+        logging.info("MiDaS v3.1 model loaded successfully!")
+    
+    return _midas_v3_model
+
+
+def predict_midas_v3(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    Run MiDaS v3.1 DPT-BEiT-Large inference on an image.
+    
+    Args:
+        image_bgr: Input image in BGR format (numpy array)
+    
+    Returns:
+        Depth map as numpy array
+    """
+    model = load_midas_v3_model()
+    
+    # Convert BGR to RGB PIL Image
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image_rgb)
+    
+    # Run inference
+    outputs = model(pil_image)
+    
+    # Get depth map and convert to numpy
+    depth = np.array(outputs["depth"])
+    
+    # Resize to match input image size if needed
+    h, w = image_bgr.shape[:2]
+    if depth.shape[:2] != (h, w):
+        depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+    
+    return depth
+
+
 def _prep_da3_image(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         image = np.stack([image] * 3, axis=-1)
@@ -421,7 +583,7 @@ def run_da3_inference(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, np
 
 def clear_model_cache():
     """Clear model cache to free GPU memory for ZeroGPU"""
-    global _v1_models, _v2_models, _da3_models, _ppd_model, _moge_model, _depth_pro_cache, _zoedepth_model
+    global _v1_models, _v2_models, _da3_models, _ppd_model, _moge_model, _depth_pro_cache, _zoedepth_model, _midas_model, _midas_v2_model, _midas_v3_model
     for model in _v1_models.values():
         del model
     for model in _v2_models.values():
@@ -435,6 +597,9 @@ def clear_model_cache():
     _moge_model = None
     _depth_pro_cache = {"model": None, "transform": None}
     _zoedepth_model = None
+    _midas_model = None
+    _midas_v2_model = None
+    _midas_v3_model = None
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -535,6 +700,9 @@ def get_model_choices() -> List[Tuple[str, str]]:
     choices.append(("Pixel-Perfect Depth", "ppd"))
     choices.append(("AppleDepthPro", "depthpro"))
     choices.append(("Intel ZoeDepth", "zoedepth"))
+    choices.append(("MiDaS v1 (DPT-Large)", "midas"))
+    choices.append(("MiDaS v2 (DPT-Hybrid)", "midas_v2"))
+    choices.append(("MiDaS v3 (BEiT-Large)", "midas_v3"))
     return choices
 
 @spaces.GPU
@@ -573,6 +741,24 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
             clear_model_cache()
             depth = predict_zoedepth(image)
             label = "Intel ZoeDepth"
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key == 'midas':
+            clear_model_cache()
+            depth = predict_midas(image)
+            label = "MiDaS v1 (DPT-Large)"
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key == 'midas_v2':
+            clear_model_cache()
+            depth = predict_midas_v2(image)
+            label = "MiDaS v2 (DPT-Hybrid)"
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key == 'midas_v3':
+            clear_model_cache()
+            depth = predict_midas_v3(image)
+            label = "MiDaS v3 (BEiT-Large)"
             colored = colorize_depth(depth)
             return colored, label
         else:

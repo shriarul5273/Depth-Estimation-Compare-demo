@@ -15,14 +15,14 @@ pinned: false
 **🌐 Live demo on Hugging Face Spaces (ZeroGPU):** [Depth-Estimation-Compare-demo](https://huggingface.co/spaces/shriarul5273/Depth-Estimation-Compare-demo)
 
 
-A Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, **Depth Anything v3 (AnySize)**, **Pixel-Perfect Depth (PPD)**, **AppleDepthPro**, and **Intel ZoeDepth** on the same image. Switch between side-by-side layouts, a slider overlay, single-model inspection, or a dedicated v3 tab to understand how different pipelines perceive scene geometry. Two entrypoints are provided:
+A Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, **Depth Anything v3 (AnySize)**, **Pixel-Perfect Depth (PPD)**, **AppleDepthPro**, **Intel ZoeDepth**, and **MiDaS** on the same image. Switch between side-by-side layouts, a slider overlay, single-model inspection, or a dedicated v3 tab to understand how different pipelines perceive scene geometry. Two entrypoints are provided:
 
 - `app_local.py` – full-featured local runner with minimal memory constraints.
 - `app.py` – ZeroGPU-aware build tuned for HuggingFace Spaces with aggressive cache management.
 
 ## 🚀 Highlights
 - **Four interactive experiences**: draggable slider, labeled side-by-side comparison, original-vs-depth slider, and a Depth Anything v3 tab with RGB vs depth visualization + metadata.
-- **Multi-family depth models**: run ViT variants from Depth Anything v1/v2/v3 alongside Pixel-Perfect Depth with MoGe metric alignment, AppleDepthPro for sharp monocular metric depth, and Intel ZoeDepth for zero-shot metric depth.
+- **Multi-family depth models**: run ViT variants from Depth Anything v1/v2/v3 alongside Pixel-Perfect Depth with MoGe metric alignment, AppleDepthPro for sharp monocular metric depth, Intel ZoeDepth for zero-shot metric depth, and MiDaS for robust relative depth.
 - **ZeroGPU aware**: `app.py` performs on-demand loading, cache clearing, and CUDA cleanup to stay within HuggingFace Spaces limits, while `app_local.py` keeps models warm for faster iteration.
 - **Curated examples**: reusable demo images sourced from each model family (`assets/examples`, `Depth-Anything*/assets/examples`, `Depth-Anything-3-anysize/assets/examples`, `Pixel-Perfect-Depth/assets/examples`).
 
@@ -33,6 +33,7 @@ A Gradio interface for comparing **Depth Anything v1**, **Depth Anything v2**, *
 - **Pixel-Perfect Depth**: Diffusion-based relative depth refined by the **MoGe** metric surface model and RANSAC alignment to recover metric depth; customizable denoising steps.
 - **AppleDepthPro** (`apple/DepthPro`): Apple's foundation model for zero-shot metric monocular depth estimation producing sharp, high-resolution depth maps with absolute scale in meters and automatic focal length estimation—all in under a second.
 - **Intel ZoeDepth** (`Intel/zoedepth-nyu-kitti`): Zero-shot metric depth estimation model fine-tuned on NYU and KITTI datasets; extends the DPT framework for absolute depth with state-of-the-art results via the HuggingFace transformers pipeline.
+- **MiDaS v1/v2/v3** (`Intel/dpt-large`, `Intel/dpt-hybrid-midas`, `Intel/dpt-beit-large-512`): Intel's robust monocular depth estimation models; v1 DPT-Large provides high-quality relative depth, v2 DPT-Hybrid offers a faster/lighter alternative, and v3 BEiT-Large delivers the best accuracy—all via the transformers pipeline.
 
 ## 🖥️ App Experience
 - **Slider Comparison**: drag between any two predictions with automatically labeled overlays.
@@ -98,8 +99,8 @@ Depth-Estimation-Compare-demo/
 ```
 
 ## ⚙️ Configuration Notes
-- Model dropdown labels come from `V1_MODEL_CONFIGS`, `V2_MODEL_CONFIGS`, `DA3_MODEL_SOURCES`, plus the PPD, AppleDepthPro, and ZoeDepth entries in both apps.
-- `clear_model_cache()` resets every model family (v1/v2/v3/PPD/DepthPro/ZoeDepth) and flushes CUDA to respect ZeroGPU constraints in `app.py`.
+- Model dropdown labels come from `V1_MODEL_CONFIGS`, `V2_MODEL_CONFIGS`, `DA3_MODEL_SOURCES`, plus the PPD, AppleDepthPro, ZoeDepth, and MiDaS entries in both apps.
+- `clear_model_cache()` resets every model family (v1/v2/v3/PPD/DepthPro/ZoeDepth/MiDaS) and flushes CUDA to respect ZeroGPU constraints in `app.py`.
 - Depth Anything v3 inference leverages the AnySize API (`process_res=None`, `process_res_method="keep"`) to preserve native resolution and returns processed RGB/depth pairs.
 - Pixel-Perfect Depth inference aligns relative depth to metric scale through `recover_metric_depth_ransac()` for consistent visualization.
 - AppleDepthPro returns metric depth in meters with automatic focal length estimation; no camera intrinsics required.
@@ -113,6 +114,7 @@ Depth-Estimation-Compare-demo/
 - **Pixel-Perfect Depth**: diffusion + metric refinement typically takes longer (10–20 denoise steps) but returns metrically-aligned depth suitable for downstream 3D tasks.
 - **AppleDepthPro**: produces 2.25 megapixel depth maps in ~0.3 s on GPU; delivers sharp boundaries and metric scale without requiring camera intrinsics.
 - **Intel ZoeDepth**: fast inference via the transformers pipeline; produces metric depth maps fine-tuned for indoor (NYU) and outdoor (KITTI) scenes.
+- **MiDaS**: v1 (DPT-Large) offers high-quality relative depth; v2 (DPT-Hybrid) is faster for real-time use; v3 (BEiT-Large) provides the best accuracy at higher compute cost.
 
 ## 🎯 Usage Tips
 - Mix-and-match any two models in comparison tabs to highlight qualitative differences.
@@ -129,6 +131,7 @@ Enhancements are welcome—new model backends, visualization modes, or memory op
 - [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
 - [AppleDepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth in Less Than a Second
 - [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Transfer by Combining Relative and Metric Depth
+- [MiDaS](https://github.com/isl-org/MiDaS) - Robust Monocular Depth Estimation
 
 ## 📄 License
 - Depth Anything v1: MIT License
@@ -136,6 +139,7 @@ Enhancements are welcome—new model backends, visualization modes, or memory op
 - Pixel-Perfect Depth: see upstream repository for licensing
 - AppleDepthPro: see [Apple ML License](https://github.com/apple/ml-depth-pro/blob/main/LICENSE)
 - Intel ZoeDepth: MIT License
+- MiDaS: MIT License
 - Demo scaffolding in this repo: MIT License (follow individual component terms)
 
 ---
