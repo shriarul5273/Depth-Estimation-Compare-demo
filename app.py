@@ -45,6 +45,9 @@ from depth_anything_3.utils.visualize import visualize_depth
 import depth_pro
 import tempfile
 
+# ZoeDepth imports (Intel)
+from transformers import pipeline as hf_pipeline
+
 # Pixel-Perfect Depth imports
 from ppd.utils.set_seed import set_seed
 from ppd.utils.align_depth_func import recover_metric_depth_ransac
@@ -135,6 +138,7 @@ _depth_pro_cache = {
     "model": None,
     "transform": None,
 }
+_zoedepth_model = None
 
 PPD_DEFAULT_STEPS = 20
 _ppd_cmap = matplotlib.colormaps.get_cmap('Spectral')
@@ -311,6 +315,60 @@ def predict_depth_pro(image_bgr: np.ndarray) -> np.ndarray:
     return depth
 
 
+def load_zoedepth_model():
+    """
+    Load the Intel ZoeDepth model using HuggingFace transformers pipeline.
+    ZoeDepth is fine-tuned on NYU and KITTI datasets for metric depth estimation.
+    """
+    global _zoedepth_model
+    
+    if _zoedepth_model is None:
+        clear_model_cache()
+        
+        logging.info(f"Loading ZoeDepth model on {TORCH_DEVICE}...")
+        
+        # Use the transformers pipeline for depth estimation
+        _zoedepth_model = hf_pipeline(
+            task="depth-estimation",
+            model="Intel/zoedepth-nyu-kitti",
+            device=0 if DEVICE == 'cuda' else -1
+        )
+        
+        logging.info("ZoeDepth model loaded successfully!")
+    
+    return _zoedepth_model
+
+
+def predict_zoedepth(image_bgr: np.ndarray) -> np.ndarray:
+    """
+    Run ZoeDepth inference on an image.
+    
+    Args:
+        image_bgr: Input image in BGR format (numpy array)
+    
+    Returns:
+        Depth map as numpy array
+    """
+    model = load_zoedepth_model()
+    
+    # Convert BGR to RGB PIL Image
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image_rgb)
+    
+    # Run inference
+    outputs = model(pil_image)
+    
+    # Get depth map and convert to numpy
+    depth = np.array(outputs["depth"])
+    
+    # Resize to match input image size if needed
+    h, w = image_bgr.shape[:2]
+    if depth.shape[:2] != (h, w):
+        depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+    
+    return depth
+
+
 def _prep_da3_image(image: np.ndarray) -> np.ndarray:
     if image.ndim == 2:
         image = np.stack([image] * 3, axis=-1)
@@ -363,7 +421,7 @@ def run_da3_inference(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, np
 
 def clear_model_cache():
     """Clear model cache to free GPU memory for ZeroGPU"""
-    global _v1_models, _v2_models, _da3_models, _ppd_model, _moge_model, _depth_pro_cache
+    global _v1_models, _v2_models, _da3_models, _ppd_model, _moge_model, _depth_pro_cache, _zoedepth_model
     for model in _v1_models.values():
         del model
     for model in _v2_models.values():
@@ -376,6 +434,7 @@ def clear_model_cache():
     _ppd_model = None
     _moge_model = None
     _depth_pro_cache = {"model": None, "transform": None}
+    _zoedepth_model = None
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -475,6 +534,7 @@ def get_model_choices() -> List[Tuple[str, str]]:
         choices.append((v['display_name'], f'da3_{k}'))
     choices.append(("Pixel-Perfect Depth", "ppd"))
     choices.append(("AppleDepthPro", "depthpro"))
+    choices.append(("Intel ZoeDepth", "zoedepth"))
     return choices
 
 @spaces.GPU
@@ -507,6 +567,12 @@ def run_model(model_key: str, image: np.ndarray) -> Tuple[np.ndarray, str]:
             clear_model_cache()
             depth = predict_depth_pro(image)
             label = "AppleDepthPro"
+            colored = colorize_depth(depth)
+            return colored, label
+        elif model_key == 'zoedepth':
+            clear_model_cache()
+            depth = predict_zoedepth(image)
+            label = "Intel ZoeDepth"
             colored = colorize_depth(depth)
             return colored, label
         else:
@@ -739,7 +805,7 @@ def create_app():
     with gr.Blocks(**blocks_kwargs) as app:
         gr.Markdown("""
         # Depth Estimation Comparison
-        Compare Depth Anything v1, v2, v3, Pixel-Perfect Depth, and AppleDepthPro side-by-side or with a slider.
+        Compare Depth Anything v1, v2, v3, Pixel-Perfect Depth, AppleDepthPro, and Intel ZoeDepth side-by-side or with a slider.
         
         ⚡ **Running on ZeroGPU** - GPU resources are allocated automatically for inference.
         """)
@@ -797,6 +863,7 @@ def create_app():
         - **v3**: [Depth Anything v3](https://github.com/ByteDance-Seed/Depth-Anything-3) & [Depth-Anything-3-anysize](https://github.com/shriarul5273/Depth-Anything-3-anysize)
         - **PPD**: [Pixel-Perfect Depth](https://github.com/gangweix/pixel-perfect-depth)
         - **DepthPro**: [Apple DepthPro](https://github.com/apple/ml-depth-pro) - Sharp Monocular Metric Depth
+        - **ZoeDepth**: [Intel ZoeDepth](https://huggingface.co/Intel/zoedepth-nyu-kitti) - Zero-shot Metric Depth Estimation
         
         **Note**: This app uses ZeroGPU for efficient GPU resource management. Models are loaded on-demand and GPU memory is automatically cleaned up after each inference.
         """)
