@@ -1,9 +1,4 @@
 depth-estimation
-torch>=2.0.0
-torchvision>=0.15.0
-numpy<2
-pillow>=9.5.0
-opencv-python>=4.8.0
 gradio>=6.2.0
 gradio_imageslider
 huggingface-hub>=0.16.0
