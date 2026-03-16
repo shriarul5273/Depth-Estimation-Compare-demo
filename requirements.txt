@@ -1,5 +1,5 @@
 depth-estimation
-gradio>=6.2.0
+gradio
 gradio_imageslider
-huggingface-hub>=0.16.0
-spaces>=0.25.0
+huggingface-hub
+spaces
