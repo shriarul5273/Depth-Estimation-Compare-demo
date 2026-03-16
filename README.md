@@ -3,9 +3,7 @@ title: Depth Estimation Compare Demo
 emoji: 👀
 colorFrom: indigo
 colorTo: indigo
-sdk: gradio
-sdk_version: 6.9.0
-app_file: app.py
+sdk: docker
 pinned: false
 ---
 

@@ -23,45 +23,45 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 MODEL_REGISTRY: Dict[str, str] = {
-    # Depth Anything v1
-    "depth-anything-v1-vits":               "Depth Anything v1 ViT-S",
-    "depth-anything-v1-vitb":               "Depth Anything v1 ViT-B",
-    "depth-anything-v1-vitl":               "Depth Anything v1 ViT-L",
-    # Depth Anything v2
-    "depth-anything-v2-vits":               "Depth Anything v2 ViT-S",
-    "depth-anything-v2-vitb":               "Depth Anything v2 ViT-B",
-    "depth-anything-v2-vitl":               "Depth Anything v2 ViT-L",
+    # Depth Anything v1 — Relative
+    "depth-anything-v1-vits":               "Depth Anything v1 ViT-S [Relative]",
+    "depth-anything-v1-vitb":               "Depth Anything v1 ViT-B [Relative]",
+    "depth-anything-v1-vitl":               "Depth Anything v1 ViT-L [Relative]",
+    # Depth Anything v2 — Relative
+    "depth-anything-v2-vits":               "Depth Anything v2 ViT-S [Relative]",
+    "depth-anything-v2-vitb":               "Depth Anything v2 ViT-B [Relative]",
+    "depth-anything-v2-vitl":               "Depth Anything v2 ViT-L [Relative]",
     # Depth Anything v3
-    "depth-anything-v3-small":              "Depth Anything v3 Small",
-    "depth-anything-v3-base":               "Depth Anything v3 Base",
-    "depth-anything-v3-large":              "Depth Anything v3 Large",
-    "depth-anything-v3-giant":              "Depth Anything v3 Giant",
-    "depth-anything-v3-nested-giant-large": "Depth Anything v3 Nested Giant Large",
-    "depth-anything-v3-metric-large":       "Depth Anything v3 Metric Large",
-    "depth-anything-v3-mono-large":         "Depth Anything v3 Mono Large",
-    # ZoeDepth
-    "zoedepth":                             "Intel ZoeDepth",
-    # MiDaS
-    "midas-dpt-large":                      "MiDaS DPT-Large",
-    "midas-dpt-hybrid":                     "MiDaS DPT-Hybrid",
-    "midas-beit-large":                     "MiDaS BEiT-Large",
-    # Apple DepthPro
-    "depth-pro":                            "Apple DepthPro",
-    # Pixel-Perfect Depth
-    "pixel-perfect-depth":                  "Pixel-Perfect Depth",
-    # Marigold-DC
-    "marigold-dc":                          "Marigold-DC",
-    # MoGe
-    "moge-v1":                              "MoGe v1",
-    "moge-v2-vitl":                         "MoGe v2 ViT-L",
-    "moge-v2-vitl-normal":                  "MoGe v2 ViT-L Normal",
-    "moge-v2-vitb-normal":                  "MoGe v2 ViT-B Normal",
-    "moge-v2-vits-normal":                  "MoGe v2 ViT-S Normal",
-    # OmniVGGT
-    "omnivggt":                             "OmniVGGT",
-    # VGGT
-    "vggt":                                 "VGGT",
-    "vggt-commercial":                      "VGGT (Commercial)",
+    "depth-anything-v3-small":              "Depth Anything v3 Small [Relative+Metric]",
+    "depth-anything-v3-base":               "Depth Anything v3 Base [Relative+Metric]",
+    "depth-anything-v3-large":              "Depth Anything v3 Large [Relative+Metric]",
+    "depth-anything-v3-giant":              "Depth Anything v3 Giant [Relative+Metric]",
+    "depth-anything-v3-nested-giant-large": "Depth Anything v3 Nested Giant Large [Relative]",
+    "depth-anything-v3-metric-large":       "Depth Anything v3 Metric Large [Metric]",
+    "depth-anything-v3-mono-large":         "Depth Anything v3 Mono Large [Relative+Metric]",
+    # ZoeDepth — Metric
+    "zoedepth":                             "Intel ZoeDepth [Metric]",
+    # MiDaS — Relative
+    "midas-dpt-large":                      "MiDaS DPT-Large [Relative]",
+    "midas-dpt-hybrid":                     "MiDaS DPT-Hybrid [Relative]",
+    "midas-beit-large":                     "MiDaS BEiT-Large [Relative]",
+    # Apple DepthPro — Metric
+    "depth-pro":                            "Apple DepthPro [Metric]",
+    # Pixel-Perfect Depth — Relative
+    "pixel-perfect-depth":                  "Pixel-Perfect Depth [Relative]",
+    # Marigold-DC — Depth Completion
+    "marigold-dc":                          "Marigold-DC [Depth Completion]",
+    # MoGe — Metric
+    "moge-v1":                              "MoGe v1 [Metric]",
+    "moge-v2-vitl":                         "MoGe v2 ViT-L [Metric]",
+    "moge-v2-vitl-normal":                  "MoGe v2 ViT-L Normal [Metric]",
+    "moge-v2-vitb-normal":                  "MoGe v2 ViT-B Normal [Metric]",
+    "moge-v2-vits-normal":                  "MoGe v2 ViT-S Normal [Metric]",
+    # OmniVGGT — Metric
+    "omnivggt":                             "OmniVGGT [Metric]",
+    # VGGT — Metric
+    "vggt":                                 "VGGT [Metric]",
+    "vggt-commercial":                      "VGGT (Commercial) [Metric]",
 }
 
 DA3_MODEL_KEYS: List[str] = [k for k in MODEL_REGISTRY if k.startswith("depth-anything-v3-")]
